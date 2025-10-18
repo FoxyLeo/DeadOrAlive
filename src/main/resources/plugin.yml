@@ -1,0 +1,26 @@
+name: DeadOrAlive
+version: '1.0'
+main: com.foxy.deadOrAlive.DeadOrAlive
+api-version: '1.21'
+author: Foxy_Leov
+commands:
+  doa:
+    description: Base command for DeadOrAlive.
+    usage: /doa
+    permission: deadoralive.use
+permissions:
+  deadoralive.use:
+    description: Allows use of the /doa command.
+    default: op
+  deadoralive.reload:
+    description: Allows reloading the rooms configuration.
+    default: op
+  deadoralive.setrooms:
+    description: Allows setting the room centers with /doa setrooms.
+    default: op
+  deadoralive.setteleports:
+    description: Allows setting the teleports with /doa setteleports.
+    default: op
+  deadoralive.start:
+    description: Allows starting the Dead Or Alive event.
+    default: op

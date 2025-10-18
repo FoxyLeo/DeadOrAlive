@@ -1,0 +1,18 @@
+room_1:
+  teleport_to_room_2: null
+  teleport_to_room_4: null
+room_2:
+  teleport_to_room_3: null
+  teleport_to_room_5: null
+room_3:
+  teleport_to_room_6: null
+  teleport_to_room_death: null
+room_6:
+  teleport_to_room_5: null
+  teleport_to_room_7: null
+room_7:
+  teleport_to_room_death: null
+  teleport_to_room_8: null
+room_8:
+  teleport_to_room_5: null
+  teleport_to_room_9: null

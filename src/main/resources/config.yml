@@ -1,0 +1,30 @@
+# DeadOrAlive configuration
+
+# Language for plugin messages. Use 'en' for English or 'es' for Spanish.
+lang: en
+
+# Values in seconds and hearts control the pacing of the event.
+event:
+  # Total time (in seconds) for the first room countdown.
+  initial-time: 120
+  # Time removed (in seconds) from the countdown each time players advance to a safe room.
+  time-decrement: 20
+  # Interval in seconds between each damage tick once the timer expires.
+  damage-interval: 1
+  # Amount of hearts removed on each damage tick after the timer expires.
+  damage-hearts: 2
+  # Delay in seconds between the introductory chat message and the countdown start.
+  start-delay: 3
+  # Delay in seconds before a player that chose a dead room is killed.
+  death-delay: 2
+  # Radius (in blocks) around the world spawn used to find random respawn positions.
+  respawn-radius: 10
+
+# Coordinates used to respawn eliminated players at the lobby.
+# Set the world name if you want to send players to another world. When left empty,
+# the server's default world will be used.
+coords_lobby:
+  world: ""
+  x: 0
+  y: 64
+  z: 0
