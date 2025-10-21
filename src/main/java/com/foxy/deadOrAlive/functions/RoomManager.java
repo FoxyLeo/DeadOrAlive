@@ -54,11 +54,18 @@ public class RoomManager {
             }
 
             String type = section.getString("type", "safe");
-            double x = section.getDouble("x");
-            double y = section.getDouble("y");
-            double z = section.getDouble("z");
+            boolean hasCoordinates = section.contains("x") && section.contains("y") && section.contains("z");
+            Vector center = null;
+            if (hasCoordinates) {
+                double x = section.getDouble("x");
+                double y = section.getDouble("y");
+                double z = section.getDouble("z");
+                if (x != 0 || y != 0 || z != 0) {
+                    center = new Vector(x, y, z);
+                }
+            }
 
-            rooms.put(key.toLowerCase(), new RoomData(type, new Vector(x, y, z)));
+            rooms.put(key.toLowerCase(), new RoomData(type, center));
         }
     }
 
@@ -79,7 +86,10 @@ public class RoomManager {
     public Map<String, Vector> getRooms() {
         Map<String, Vector> map = new HashMap<>();
         for (Map.Entry<String, RoomData> entry : rooms.entrySet()) {
-            map.put(entry.getKey(), entry.getValue().getCenter());
+            Vector center = entry.getValue().getCenter();
+            if (center != null) {
+                map.put(entry.getKey(), center);
+            }
         }
         return Collections.unmodifiableMap(map);
     }
@@ -90,6 +100,20 @@ public class RoomManager {
         }
         RoomData data = rooms.get(roomId.toLowerCase());
         return data == null ? null : data.getCenter();
+    }
+
+    public boolean areAllRoomsConfigured() {
+        if (rooms.isEmpty()) {
+            return false;
+        }
+
+        for (RoomData data : rooms.values()) {
+            if (data == null || !data.isConfigured()) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     public String getRoomType(String roomId) {
@@ -124,7 +148,8 @@ public class RoomManager {
         section.set("z", z);
 
         String type = section.getString("type", "safe");
-        rooms.put(key, new RoomData(type, new Vector(x, y, z)));
+        Vector center = (x == 0 && y == 0 && z == 0) ? null : new Vector(x, y, z);
+        rooms.put(key, new RoomData(type, center));
         return save();
     }
 
@@ -135,6 +160,10 @@ public class RoomManager {
         public RoomData(String type, Vector center) {
             this.type = type == null ? "" : type;
             this.center = center;
+        }
+
+        public boolean isConfigured() {
+            return center != null;
         }
 
         public String getType() {

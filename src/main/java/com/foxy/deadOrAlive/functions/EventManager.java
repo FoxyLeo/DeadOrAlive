@@ -102,6 +102,20 @@ public class EventManager implements Listener {
             return false;
         }
 
+        if (!plugin.getRoomManager().areAllRoomsConfigured()) {
+            if (sender != null) {
+                sender.sendMessage(plugin.getMessageManager().getMessage("event-start-rooms-not-configured"));
+            }
+            return false;
+        }
+
+        if (!plugin.getTeleportManager().hasConfiguredTeleports()) {
+            if (sender != null) {
+                sender.sendMessage(plugin.getMessageManager().getMessage("event-start-teleports-not-configured"));
+            }
+            return false;
+        }
+
         Collection<? extends Player> players = plugin.getServer().getOnlinePlayers();
         if (players.isEmpty()) {
             if (sender != null) {

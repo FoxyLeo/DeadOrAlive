@@ -1,45 +1,19 @@
 room_1:
   type: home
-  x: 0
-  y: 0
-  z: 0
 room_2:
   type: safe
-  x: 0
-  y: 0
-  z: 0
 room_3:
   type: safe
-  x: 0
-  y: 0
-  z: 0
 room_4:
   type: dead
-  x: 0
-  y: 0
-  z: 0
 room_5:
   type: dead
-  x: 0
-  y: 0
-  z: 0
 room_6:
   type: safe
-  x: 0
-  y: 0
-  z: 0
 room_7:
   type: safe
-  x: 0
-  y: 0
-  z: 0
 room_8:
   type: safe
-  x: 0
-  y: 0
-  z: 0
 room_9:
   type: finish
-  x: 0
-  y: 0
-  z: 0
+

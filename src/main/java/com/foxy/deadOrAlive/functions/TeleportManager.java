@@ -119,6 +119,20 @@ public class TeleportManager implements Listener {
         return Collections.unmodifiableMap(teleports);
     }
 
+    public boolean hasConfiguredTeleports() {
+        if (teleports.isEmpty()) {
+            return false;
+        }
+
+        for (Map<String, TeleportPoint> roomTeleports : teleports.values()) {
+            if (roomTeleports != null && !roomTeleports.isEmpty()) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public boolean setTeleport(String origin, String teleportKey, Location location, String destinationRoom) {
         if (configuration == null || origin == null || teleportKey == null || location == null || destinationRoom == null) {
             return false;

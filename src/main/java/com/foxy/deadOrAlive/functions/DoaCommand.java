@@ -102,6 +102,16 @@ public class DoaCommand implements CommandExecutor, TabCompleter {
                     return true;
                 }
 
+                if (!plugin.getRoomManager().areAllRoomsConfigured()) {
+                    sender.sendMessage(plugin.getMessageManager().getMessage("event-start-rooms-not-configured"));
+                    return true;
+                }
+
+                if (!plugin.getTeleportManager().hasConfiguredTeleports()) {
+                    sender.sendMessage(plugin.getMessageManager().getMessage("event-start-teleports-not-configured"));
+                    return true;
+                }
+
                 plugin.getEventManager().startEvent(sender);
                 return true;
             }
