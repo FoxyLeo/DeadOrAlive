@@ -17,8 +17,6 @@ event:
   start-delay: 3
   # Delay in seconds before a player that chose a dead room is killed.
   death-delay: 2
-  # Radius (in blocks) around the world spawn used to find random respawn positions.
-  respawn-radius: 10
 
 # Coordinates used to respawn eliminated players at the lobby.
 # Set the world name if you want to send players to another world. When left empty,

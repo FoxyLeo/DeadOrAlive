@@ -1,12 +1,14 @@
 package com.foxy.deadOrAlive;
 
-import com.foxy.deadOrAlive.functions.DoaCommand;
-import com.foxy.deadOrAlive.functions.EventManager;
-import com.foxy.deadOrAlive.functions.MessageManager;
-import com.foxy.deadOrAlive.functions.RoomManager;
-import com.foxy.deadOrAlive.functions.RoomSetupManager;
-import com.foxy.deadOrAlive.functions.TeleportManager;
-import com.foxy.deadOrAlive.functions.TeleportSetupManager;
+import com.foxy.deadOrAlive.command.DoaCommand;
+import com.foxy.deadOrAlive.event.EventManager;
+import com.foxy.deadOrAlive.lobby.LobbyManager;
+import com.foxy.deadOrAlive.lobby.LobbySelectionManager;
+import com.foxy.deadOrAlive.message.MessageManager;
+import com.foxy.deadOrAlive.room.RoomManager;
+import com.foxy.deadOrAlive.room.setup.RoomSetupManager;
+import com.foxy.deadOrAlive.teleport.TeleportManager;
+import com.foxy.deadOrAlive.teleport.setup.TeleportSetupManager;
 import org.bukkit.plugin.PluginManager;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -16,6 +18,8 @@ import java.util.Objects;
 public final class DeadOrAlive extends JavaPlugin {
 
     private MessageManager messageManager;
+    private LobbyManager lobbyManager;
+    private LobbySelectionManager lobbySelectionManager;
     private RoomManager roomManager;
     private RoomSetupManager roomSetupManager;
     private TeleportManager teleportManager;
@@ -27,17 +31,20 @@ public final class DeadOrAlive extends JavaPlugin {
         saveDefaultConfig();
 
         messageManager = new MessageManager(this);
+        lobbyManager = new LobbyManager(this);
         roomManager = new RoomManager(this);
         roomSetupManager = new RoomSetupManager(this);
         teleportSetupManager = new TeleportSetupManager(this);
         teleportManager = new TeleportManager(this);
-        eventManager = new EventManager(this);
+        lobbySelectionManager = new LobbySelectionManager(this, lobbyManager);
+        eventManager = new EventManager(this, lobbyManager);
 
         PluginManager pluginManager = getServer().getPluginManager();
         pluginManager.registerEvents(roomSetupManager, this);
         pluginManager.registerEvents(teleportSetupManager, this);
         pluginManager.registerEvents(teleportManager, this);
         pluginManager.registerEvents(eventManager, this);
+        pluginManager.registerEvents(lobbySelectionManager, this);
 
         DoaCommand doaCommand = new DoaCommand(this);
         PluginCommand pluginCommand = Objects.requireNonNull(getCommand("doa"), "Command 'doa' not defined in plugin.yml");
@@ -54,6 +61,9 @@ public final class DeadOrAlive extends JavaPlugin {
         }
         if (teleportSetupManager != null) {
             teleportSetupManager.cancelAllSessions();
+        }
+        if (lobbySelectionManager != null) {
+            lobbySelectionManager.cancelAllSelections();
         }
         if (eventManager != null) {
             eventManager.shutdown();
@@ -84,6 +94,14 @@ public final class DeadOrAlive extends JavaPlugin {
 
     public MessageManager getMessageManager() {
         return messageManager;
+    }
+
+    public LobbyManager getLobbyManager() {
+        return lobbyManager;
+    }
+
+    public LobbySelectionManager getLobbySelectionManager() {
+        return lobbySelectionManager;
     }
 
     public RoomManager getRoomManager() {

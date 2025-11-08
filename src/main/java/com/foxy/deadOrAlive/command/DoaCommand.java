@@ -1,4 +1,4 @@
-package com.foxy.deadOrAlive.functions;
+package com.foxy.deadOrAlive.command;
 
 import com.foxy.deadOrAlive.DeadOrAlive;
 import org.bukkit.command.Command;
@@ -42,13 +42,39 @@ public class DoaCommand implements CommandExecutor, TabCompleter {
                 }
 
                 plugin.reloadConfig();
+                plugin.getMessageManager().reload();
+                plugin.getLobbyManager().reload();
                 plugin.getRoomManager().reload();
                 plugin.getTeleportManager().reload();
-                plugin.getMessageManager().reload();
                 if (plugin.getEventManager() != null) {
                     plugin.getEventManager().reloadSettings();
                 }
                 sender.sendMessage(plugin.getMessageManager().getMessage("reload-success"));
+                return true;
+            }
+
+            if (subCommand.equalsIgnoreCase("setlobby")) {
+                if (!sender.hasPermission("deadoralive.setlobby")) {
+                    sender.sendMessage(plugin.getMessageManager().getMessage("no-permission"));
+                    return true;
+                }
+
+                if (!(sender instanceof Player player)) {
+                    sender.sendMessage(plugin.getMessageManager().getMessage("not-player"));
+                    return true;
+                }
+
+                if (plugin.getRoomSetupManager().hasActiveSessions()) {
+                    player.sendMessage(plugin.getMessageManager().getMessage("setlobby-blocked-by-rooms"));
+                    return true;
+                }
+
+                if (plugin.getTeleportSetupManager().hasActiveSessions()) {
+                    player.sendMessage(plugin.getMessageManager().getMessage("setlobby-blocked-by-teleports"));
+                    return true;
+                }
+
+                plugin.getLobbySelectionManager().startSelection(player);
                 return true;
             }
 
@@ -60,6 +86,11 @@ public class DoaCommand implements CommandExecutor, TabCompleter {
 
                 if (!(sender instanceof Player player)) {
                     sender.sendMessage(plugin.getMessageManager().getMessage("not-player"));
+                    return true;
+                }
+
+                if (plugin.getLobbySelectionManager().isSelecting(player.getUniqueId())) {
+                    player.sendMessage(plugin.getMessageManager().getMessage("setrooms-blocked-by-lobby"));
                     return true;
                 }
 
@@ -80,6 +111,11 @@ public class DoaCommand implements CommandExecutor, TabCompleter {
 
                 if (!(sender instanceof Player player)) {
                     sender.sendMessage(plugin.getMessageManager().getMessage("not-player"));
+                    return true;
+                }
+
+                if (plugin.getLobbySelectionManager().isSelecting(player.getUniqueId())) {
+                    player.sendMessage(plugin.getMessageManager().getMessage("setteleports-blocked-by-lobby"));
                     return true;
                 }
 
@@ -129,6 +165,9 @@ public class DoaCommand implements CommandExecutor, TabCompleter {
             List<String> subCommands = new ArrayList<>();
             if (sender.hasPermission("deadoralive.reload")) {
                 subCommands.add("reload");
+            }
+            if (sender.hasPermission("deadoralive.setlobby")) {
+                subCommands.add("setlobby");
             }
             if (sender.hasPermission("deadoralive.setrooms")) {
                 subCommands.add("setrooms");

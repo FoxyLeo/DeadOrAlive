@@ -18,6 +18,9 @@ permissions:
   deadoralive.setrooms:
     description: Allows setting the room centers with /doa setrooms.
     default: op
+  deadoralive.setlobby:
+    description: Allows setting the lobby spawn with /doa setlobby.
+    default: op
   deadoralive.setteleports:
     description: Allows setting the teleports with /doa setteleports.
     default: op

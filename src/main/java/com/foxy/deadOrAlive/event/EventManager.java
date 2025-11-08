@@ -1,6 +1,7 @@
-package com.foxy.deadOrAlive.functions;
+package com.foxy.deadOrAlive.event;
 
 import com.foxy.deadOrAlive.DeadOrAlive;
+import com.foxy.deadOrAlive.lobby.LobbyManager;
 import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
 import org.bukkit.GameRule;
@@ -9,12 +10,14 @@ import org.bukkit.World;
 import org.bukkit.boss.BarColor;
 import org.bukkit.boss.BarStyle;
 import org.bukkit.boss.BossBar;
-import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.PlayerDeathEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.potion.PotionEffect;
@@ -33,7 +36,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Random;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -41,15 +43,16 @@ import java.util.stream.Collectors;
 
 public class EventManager implements Listener {
 
-    private static final Random RANDOM = new Random();
-
     private final DeadOrAlive plugin;
+    private final LobbyManager lobbyManager;
     private final File playersFile;
     private final Map<UUID, String> playerRooms = new HashMap<>();
     private final Map<String, Set<UUID>> roomPlayers = new HashMap<>();
-    private final Map<UUID, Integer> heartsLost = new HashMap<>();
+    private final Map<UUID, Double> heartsLost = new HashMap<>();
     private final Map<UUID, Long> teleportCooldown = new HashMap<>();
     private final Map<UUID, BukkitTask> pendingDeaths = new HashMap<>();
+    private final Map<UUID, BukkitTask> pendingDisconnects = new HashMap<>();
+    private final Map<UUID, Location> disconnectLocations = new HashMap<>();
     private final Set<UUID> preEventNotified = ConcurrentHashMap.newKeySet();
 
     private BossBar bossBar;
@@ -70,11 +73,10 @@ public class EventManager implements Listener {
     private int damageHearts;
     private int startDelaySeconds;
     private int deathDelaySeconds;
-    private int respawnRadius;
-    private Location lobbySpawnLocation;
 
-    public EventManager(DeadOrAlive plugin) {
+    public EventManager(DeadOrAlive plugin, LobbyManager lobbyManager) {
         this.plugin = plugin;
+        this.lobbyManager = lobbyManager;
         File temporalFolder = new File(plugin.getDataFolder(), "temporal");
         if (!temporalFolder.exists() && !temporalFolder.mkdirs()) {
             plugin.getLogger().warning("Could not create temporal folder for event files.");
@@ -90,8 +92,6 @@ public class EventManager implements Listener {
         this.damageHearts = Math.max(1, plugin.getConfig().getInt("event.damage-hearts", 1));
         this.startDelaySeconds = Math.max(0, plugin.getConfig().getInt("event.start-delay", 3));
         this.deathDelaySeconds = Math.max(1, plugin.getConfig().getInt("event.death-delay", 2));
-        this.respawnRadius = Math.max(1, plugin.getConfig().getInt("event.respawn-radius", 10));
-        this.lobbySpawnLocation = resolveLobbySpawnLocation();
     }
 
     public boolean startEvent(org.bukkit.command.CommandSender sender) {
@@ -142,6 +142,8 @@ public class EventManager implements Listener {
         heartsLost.clear();
         teleportCooldown.clear();
         preEventNotified.clear();
+        disconnectLocations.clear();
+        cancelAllPendingDisconnects();
         cancelCountdown();
         cancelDamageTask();
         cancelPendingAnnouncements();
@@ -155,7 +157,7 @@ public class EventManager implements Listener {
             player.setGameMode(GameMode.ADVENTURE);
             affectedWorlds.add(player.getWorld());
             addParticipant(player, currentStageRoom);
-            heartsLost.put(player.getUniqueId(), 0);
+            heartsLost.put(player.getUniqueId(), 0.0D);
         }
 
         for (World world : affectedWorlds) {
@@ -258,6 +260,31 @@ public class EventManager implements Listener {
         checkForAdvanceOrFinish();
     }
 
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onParticipantDamage(EntityDamageEvent event) {
+        if (!active) {
+            return;
+        }
+
+        if (!(event.getEntity() instanceof Player player)) {
+            return;
+        }
+
+        UUID uuid = player.getUniqueId();
+        if (!isParticipant(uuid)) {
+            return;
+        }
+
+        double finalDamage = event.getFinalDamage();
+        if (finalDamage <= 0) {
+            return;
+        }
+
+        double lostHearts = heartsLost.getOrDefault(uuid, 0.0D) + (finalDamage / 2.0D);
+        heartsLost.put(uuid, lostHearts);
+        applySlowness(player, lostHearts);
+    }
+
     @EventHandler
     public void onPlayerDeath(PlayerDeathEvent event) {
         if (!active) {
@@ -297,19 +324,52 @@ public class EventManager implements Listener {
             return;
         }
 
-        Location respawnLocation = lobbySpawnLocation;
+        Location respawnLocation = lobbyManager.getLobbyLocation();
         if (respawnLocation == null) {
-            World world = player.getWorld();
-            if (world == null) {
+            List<World> worlds = plugin.getServer().getWorlds();
+            if (worlds.isEmpty()) {
                 return;
             }
-            respawnLocation = findRandomLocation(world);
+            World world = worlds.get(0);
+            respawnLocation = resolveWorldSpawn(world);
         }
         if (respawnLocation != null) {
             event.setRespawnLocation(respawnLocation.clone());
         }
 
         player.removePotionEffect(PotionEffectType.SLOWNESS);
+    }
+
+    @EventHandler
+    public void onPlayerJoin(PlayerJoinEvent event) {
+        if (!active) {
+            return;
+        }
+
+        Player player = event.getPlayer();
+        UUID uuid = player.getUniqueId();
+        if (!isParticipant(uuid)) {
+            return;
+        }
+
+        cancelPendingDisconnect(uuid);
+
+        String roomId = playerRooms.get(uuid);
+        if (roomId != null) {
+            String roomType = plugin.getRoomManager().getRoomType(roomId);
+            if (isDeathRoomType(roomType)) {
+                scheduleDeath(player);
+            }
+        }
+
+        player.setGameMode(GameMode.ADVENTURE);
+        Location previousLocation = disconnectLocations.remove(uuid);
+        if (previousLocation != null && previousLocation.getWorld() != null) {
+            player.teleport(previousLocation);
+        } else {
+            teleportPlayerToSpawn(player);
+        }
+        updateBossBarPlayers();
     }
 
     @EventHandler
@@ -324,9 +384,35 @@ public class EventManager implements Listener {
             return;
         }
 
-        removeParticipant(uuid);
-        savePlayersFile();
-        checkForAdvanceOrFinish();
+        cancelPendingDeath(uuid);
+
+        int timeLeft = Math.max(0, remainingSeconds);
+        if (countdownTask == null) {
+            if (pendingCountdownStart != null) {
+                timeLeft = Math.max(timeLeft, stageDurationSeconds);
+            } else if (damageTask != null) {
+                timeLeft = 0;
+            } else if (timeLeft <= 0) {
+                timeLeft = stageDurationSeconds;
+            }
+        }
+
+        if (timeLeft <= 0) {
+            eliminateDisconnectedPlayer(uuid, player.getName());
+            return;
+        }
+
+        Location quitLocation = player.getLocation();
+        if (quitLocation != null) {
+            disconnectLocations.put(uuid, quitLocation.clone());
+        }
+
+        String message = plugin.getMessageManager().getMessage("event-player-disconnected")
+                .replace("%player%", player.getName())
+                .replace("%time%", formatTime(timeLeft));
+        plugin.getServer().broadcastMessage(message);
+
+        scheduleDisconnectElimination(uuid, player.getName(), timeLeft);
     }
 
     public void shutdown() {
@@ -370,7 +456,9 @@ public class EventManager implements Listener {
             }
         }
         heartsLost.remove(uuid);
+        disconnectLocations.remove(uuid);
         cancelPendingDeath(uuid);
+        cancelPendingDisconnect(uuid);
         Player player = plugin.getServer().getPlayer(uuid);
         if (player != null && bossBar != null) {
             bossBar.removePlayer(player);
@@ -462,16 +550,13 @@ public class EventManager implements Listener {
 
                     double damage = damageHearts * 2.0D;
                     player.damage(damage);
-                    int lost = heartsLost.getOrDefault(uuid, 0) + damageHearts;
-                    heartsLost.put(uuid, lost);
-                    applySlowness(player, lost);
                 }
             }
         }.runTaskTimer(plugin, damageIntervalSeconds * 20L, damageIntervalSeconds * 20L);
     }
 
-    private void applySlowness(Player player, int heartsLostCount) {
-        int amplifier = Math.max(0, heartsLostCount - 1);
+    private void applySlowness(Player player, double heartsLostCount) {
+        int amplifier = Math.max(0, (int) Math.floor(heartsLostCount) - 1);
         PotionEffect effect = new PotionEffect(PotionEffectType.SLOWNESS, Integer.MAX_VALUE, amplifier, false, false, false);
         player.addPotionEffect(effect);
     }
@@ -622,16 +707,22 @@ public class EventManager implements Listener {
     }
 
     private void scheduleDeath(Player player) {
-        cancelPendingDeath(player.getUniqueId());
+        if (player == null) {
+            return;
+        }
+        UUID uuid = player.getUniqueId();
+        cancelPendingDeath(uuid);
         BukkitTask task = new BukkitRunnable() {
             @Override
             public void run() {
-                if (!player.isDead()) {
-                    player.setHealth(0.0);
+                pendingDeaths.remove(uuid);
+                Player target = plugin.getServer().getPlayer(uuid);
+                if (target != null && target.isOnline() && !target.isDead()) {
+                    target.setHealth(0.0);
                 }
             }
         }.runTaskLater(plugin, deathDelaySeconds * 20L);
-        pendingDeaths.put(player.getUniqueId(), task);
+        pendingDeaths.put(uuid, task);
     }
 
     private void cancelPendingDeath(UUID uuid) {
@@ -680,9 +771,12 @@ public class EventManager implements Listener {
         }
         active = false;
 
+        Set<UUID> participants = new HashSet<>(playerRooms.keySet());
+
         cancelCountdown();
         cancelDamageTask();
         cancelPendingAnnouncements();
+        cancelAllPendingDisconnects();
 
         for (BukkitTask task : pendingDeaths.values()) {
             task.cancel();
@@ -713,6 +807,13 @@ public class EventManager implements Listener {
         }
         heartsLost.clear();
 
+        for (UUID uuid : participants) {
+            Player player = plugin.getServer().getPlayer(uuid);
+            if (player != null) {
+                teleportPlayerToSpawn(player);
+            }
+        }
+
         if (playersFile.exists() && !playersFile.delete()) {
             plugin.getLogger().warning("Could not delete players.yml after the event.");
         }
@@ -721,6 +822,8 @@ public class EventManager implements Listener {
         roomPlayers.clear();
         teleportCooldown.clear();
         preEventNotified.clear();
+        pendingDisconnects.clear();
+        disconnectLocations.clear();
     }
 
     private List<String> collectParticipantsByRoom(String roomId) {
@@ -768,21 +871,106 @@ public class EventManager implements Listener {
         }
     }
 
-    private Location findRandomLocation(World world) {
-        Location spawn = world.getSpawnLocation();
-        for (int attempt = 0; attempt < 5; attempt++) {
-            int offsetX = RANDOM.nextInt(respawnRadius * 2 + 1) - respawnRadius;
-            int offsetZ = RANDOM.nextInt(respawnRadius * 2 + 1) - respawnRadius;
-            int x = spawn.getBlockX() + offsetX;
-            int z = spawn.getBlockZ() + offsetZ;
-            int y = world.getHighestBlockYAt(x, z) + 1;
-            Location candidate = new Location(world, x + 0.5, y, z + 0.5);
-            if (candidate.getBlock().isPassable()) {
-                return candidate;
-            }
+    private void scheduleDisconnectElimination(UUID uuid, String playerName, int timeLeftSeconds) {
+        if (timeLeftSeconds <= 0) {
+            eliminateDisconnectedPlayer(uuid, playerName);
+            return;
         }
-        return spawn;
+        cancelPendingDisconnect(uuid);
+        BukkitTask task = new BukkitRunnable() {
+            @Override
+            public void run() {
+                eliminateDisconnectedPlayer(uuid, playerName);
+            }
+        }.runTaskLater(plugin, timeLeftSeconds * 20L);
+        pendingDisconnects.put(uuid, task);
     }
+
+    private void eliminateDisconnectedPlayer(UUID uuid, String fallbackName) {
+        if (!active) {
+            cancelPendingDisconnect(uuid);
+            return;
+        }
+
+        pendingDisconnects.remove(uuid);
+
+        String playerName = fallbackName;
+        if (playerName == null || playerName.isEmpty()) {
+            String offlineName = plugin.getServer().getOfflinePlayer(uuid).getName();
+            playerName = offlineName == null ? uuid.toString() : offlineName;
+        }
+
+        removeParticipant(uuid);
+        savePlayersFile();
+
+        String message = plugin.getMessageManager().getMessage("event-player-disconnect-eliminated")
+                .replace("%player%", playerName);
+        plugin.getServer().broadcastMessage(message);
+
+        checkForAdvanceOrFinish();
+    }
+
+    private void cancelPendingDisconnect(UUID uuid) {
+        BukkitTask task = pendingDisconnects.remove(uuid);
+        if (task != null) {
+            task.cancel();
+        }
+    }
+
+    private void cancelAllPendingDisconnects() {
+        for (BukkitTask task : pendingDisconnects.values()) {
+            task.cancel();
+        }
+        pendingDisconnects.clear();
+    }
+
+    private void teleportPlayerToSpawn(Player player) {
+        if (player == null) {
+            return;
+        }
+
+        Location target = lobbyManager.getLobbyLocation();
+        if (target == null) {
+            List<World> worlds = plugin.getServer().getWorlds();
+            if (worlds.isEmpty()) {
+                return;
+            }
+            World world = worlds.get(0);
+            target = resolveWorldSpawn(world);
+        }
+
+        if (target != null) {
+            player.teleport(target);
+        }
+    }
+
+    private Location resolveWorldSpawn(World world) {
+        if (world == null) {
+            return null;
+        }
+
+        Location spawn = world.getSpawnLocation();
+        if (spawn == null) {
+            return null;
+        }
+
+        return ensureSafeSpawnLocation(spawn);
+    }
+
+    private Location ensureSafeSpawnLocation(Location location) {
+        if (location == null || location.getWorld() == null) {
+            return location;
+        }
+
+        Location safeLocation = location.clone();
+        int blockX = safeLocation.getBlockX();
+        int blockZ = safeLocation.getBlockZ();
+
+        safeLocation.setX(blockX + 0.5);
+        safeLocation.setZ(blockZ + 0.5);
+        return safeLocation;
+    }
+
 
     private String formatTime(int totalSeconds) {
         int minutes = totalSeconds / 60;
@@ -795,40 +983,6 @@ public class EventManager implements Listener {
             return false;
         }
         return "dead".equalsIgnoreCase(roomType) || "death".equalsIgnoreCase(roomType);
-    }
-
-    private Location resolveLobbySpawnLocation() {
-        ConfigurationSection section = plugin.getConfig().getConfigurationSection("coords_lobby");
-        if (section == null) {
-            return null;
-        }
-
-        if (!section.contains("x") || !section.contains("y") || !section.contains("z")) {
-            return null;
-        }
-
-        double x = section.getDouble("x");
-        double y = section.getDouble("y");
-        double z = section.getDouble("z");
-        String worldName = section.getString("world", "");
-
-        World world = null;
-        if (worldName != null && !worldName.trim().isEmpty()) {
-            world = plugin.getServer().getWorld(worldName);
-            if (world == null) {
-                plugin.getLogger().warning("coords_lobby world '" + worldName + "' is not loaded. Falling back to the default world.");
-            }
-        }
-
-        if (world == null) {
-            List<World> worlds = plugin.getServer().getWorlds();
-            if (worlds.isEmpty()) {
-                return null;
-            }
-            world = worlds.get(0);
-        }
-
-        return new Location(world, x + 0.5, y, z + 0.5);
     }
 
     private BarColor parseColor(String value) {

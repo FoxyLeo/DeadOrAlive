@@ -1,4 +1,4 @@
-package com.foxy.deadOrAlive.functions;
+package com.foxy.deadOrAlive.message;
 
 import com.foxy.deadOrAlive.DeadOrAlive;
 import org.bukkit.ChatColor;
